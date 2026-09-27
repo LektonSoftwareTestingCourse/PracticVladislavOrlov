@@ -1,0 +1,8 @@
+bin:              400000, 400001, 400002, 400003, 400004
+cardholder_name:  MIN_LENGTH, NORMAL_LENGTH, MAX_LENGTH
+currency_code:    643, 840, 978
+daily_limit:      1, 15000000, 500000000
+monthly_limit:    1000000, 300000000, 3000000000
+initial_balance:  0, 100000000, 1000000000
+
+IF [daily_limit] = 500000000 THEN [monthly_limit] <> 1000000;

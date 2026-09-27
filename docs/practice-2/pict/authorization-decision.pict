@@ -1,0 +1,12 @@
+card_status:        ACTIVE, INACTIVE, BLOCKED, EXPIRED
+expiry:              PAST, PRESENT, FUTURE
+amount_vs_daily:     1000000, 1500000, 2000000
+amount_vs_monthly:   20000000, 30000000, 35000000
+amount_vs_balance:   3000000, 5000000, 6000000
+bin:                 400000, 400001, 400002, 400003, 400004
+bin_lookup:          200, 503_after_2_retries
+
+IF [card_status] <> "ACTIVE" THEN [amount_vs_daily] = 1000000
+    AND [amount_vs_monthly] = 20000000 AND [amount_vs_balance] = 3000000;
+IF [expiry] = "PAST" THEN [amount_vs_balance] = 3000000;
+IF [card_status] = "EXPIRED" THEN [expiry] = "PAST";
