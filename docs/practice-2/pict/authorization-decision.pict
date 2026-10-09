@@ -1,12 +1,19 @@
-card_status:        ACTIVE, INACTIVE, BLOCKED, EXPIRED
-expiry:              PAST, PRESENT, FUTURE
-amount_vs_daily:     1000000, 1500000, 2000000
-amount_vs_monthly:   20000000, 30000000, 35000000
-amount_vs_balance:   3000000, 5000000, 6000000
-bin:                 400000, 400001, 400002, 400003, 400004
-bin_lookup:          200, 503_after_2_retries
+# Авторизация: комбинации параметров (AUTH-2, AUTH-4…AUTH-10)
+# Классы значений и рецепт подготовки данных — test-design.md §5.4
+card_status: ACTIVE, INACTIVE, BLOCKED, EXPIRED
+expiry:      PAST, CURRENT_MONTH, FUTURE
+daily:       WITHIN, ON_LIMIT, OVER
+monthly:     WITHIN, ON_LIMIT, OVER
+balance:     WITHIN, EQUAL, OVER
+bin:         400000, 400001, 400002, 400003, 400004
+bin_lookup:  OK, HTTP_5XX, UNAVAILABLE
 
-IF [card_status] <> "ACTIVE" THEN [amount_vs_daily] = 1000000
-    AND [amount_vs_monthly] = 20000000 AND [amount_vs_balance] = 3000000;
-IF [expiry] = "PAST" THEN [amount_vs_balance] = 3000000;
+# Маскирование: если отказ уже наступил на более ранней проверке (C2, C3, C4, C5),
+# значения последующих проверок не влияют на ответ. Фиксируем их в WITHIN,
+# чтобы пары граничных значений попадали в строки, где они реально проверяются.
+IF [card_status] <> "ACTIVE" OR [expiry] = "PAST" THEN [daily] = "WITHIN" AND [monthly] = "WITHIN" AND [balance] = "WITHIN";
+IF [daily] = "OVER" THEN [monthly] = "WITHIN" AND [balance] = "WITHIN";
+IF [monthly] = "OVER" THEN [balance] = "WITHIN";
+
+# Статус EXPIRED с будущим сроком даёт тот же код 54, что и без него: строка не несёт информации.
 IF [card_status] = "EXPIRED" THEN [expiry] = "PAST";
