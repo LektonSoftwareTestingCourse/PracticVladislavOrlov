@@ -2,7 +2,7 @@ name: CI Pipeline
 
 # Каждый студент работает в своём отдельном репозитории (Practic{Имя}{Фамилия}).
 # Это ЛЁГКИЙ пайплайн: он гоняется на каждый push и проверяет только линтеры,
-# компиляцию Java-модулей и сборку frontend. Секреты и вход в registry не требуются.
+# unit-тесты Java-модулей и сборку frontend. Секреты и вход в registry не требуются.
 #
 # Тяжёлые проверки (docker build + smoke/e2e/load-smoke) вынесены в
 # practice-run.yml и запускаются вручную через workflow_dispatch — см.
@@ -86,10 +86,10 @@ jobs:
         cache: 'maven'
 
     - name: Run java linter
-      run: mvn -f services/pom.xml -P${{ matrix.service }} checkstyle:check
+      run: mvn -f services/pom.xml -P${{ matrix.service }} checkstyle:check -Dcheckstyle.includeTestSourceDirectory=true
 
-    - name: Build services (tests skipped until students add them)
-      run: mvn -f services/pom.xml -P${{ matrix.service }} install -Dcheckstyle.skip=true -DskipTests
+    - name: Build services and run unit tests
+      run: mvn -f services/pom.xml -P${{ matrix.service }} install -Dcheckstyle.skip=true
 
   frontend-dashboard:
     runs-on: ubuntu-latest
