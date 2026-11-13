@@ -15,7 +15,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -57,6 +56,18 @@ class CardServiceImplTest {
                 new BigDecimal("100"), "ISS001", Instant.parse("2026-01-01T00:00:00Z"));
     }
 
+    private Card activeCard() {
+        return card(CardStatus.ACTIVE);
+    }
+
+    private void cardExists(Card card) {
+        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(card));
+    }
+
+    private void verifyNoCardUpdate() {
+        verify(cards, never()).update(any());
+    }
+
     @BeforeEach
     void executeTransactionCallbacks() {
         // Execute business logic in the callback; database transaction semantics are integration scope.
@@ -67,15 +78,21 @@ class CardServiceImplTest {
         }).when(transactions).run(any());
     }
 
-    @ParameterizedTest
+    @ParameterizedTest(name = "amount={0}")
     @CsvSource({"99.99,0.01", "100.00,0.00"})
-    void reservesBelowAndAtBalance(String amount, String expectedBalance) {
-        var original = card(CardStatus.ACTIVE);
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(original));
+    void shouldDecreaseBalanceAndSaveReservationWhenAmountIsBelowOrEqualToBalance(
+            String amount, String expectedBalance) {
+        // Arrange
+        var original = activeCard();
+        cardExists(original);
         when(reservations.isUnique(RRN, PAN)).thenReturn(true);
         when(reservations.save(any())).thenAnswer(call -> call.getArgument(0));
         when(cards.update(any())).thenAnswer(call -> call.getArgument(0));
+
+        // Act
         var result = service.reserve(PAN, new BigDecimal(amount), RRN);
+
+        // Assert
         assertEquals(0, result.availableBalance().compareTo(new BigDecimal(expectedBalance)));
         assertEquals(original.id(), result.id());
         assertEquals(original.createdAt(), result.createdAt());
@@ -87,46 +104,71 @@ class CardServiceImplTest {
     }
 
     @Test
-    void insufficientBalanceHasNoWrites() {
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(card(CardStatus.ACTIVE)));
+    void shouldThrowAndWriteNothingWhenReserveAmountExceedsBalance() {
+        // Arrange
+        cardExists(activeCard());
+
+        // Act
         assertThrows(InsufficientFundsException.class, () -> service.reserve(PAN, new BigDecimal("100.01"), RRN));
-        verify(cards, never()).update(any());
+
+        // Assert
+        verifyNoCardUpdate();
         verifyNoInteractions(reservations, events);
     }
 
-    @ParameterizedTest
-    @EnumSource(value = CardStatus.class, names = {"INACTIVE", "BLOCKED", "EXPIRED", "DELETED"})
-    void nonActiveCardCannotReserve(CardStatus status) {
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(card(status)));
+    @ParameterizedTest(name = "status={0}")
+    @EnumSource(value = CardStatus.class, mode = EnumSource.Mode.EXCLUDE, names = {"ACTIVE"})
+    void shouldThrowAndWriteNothingWhenReservingOnNonActiveCard(CardStatus status) {
+        // Arrange
+        cardExists(card(status));
+
+        // Act
         assertThrows(IllegalStateException.class, () -> service.reserve(PAN, BigDecimal.ONE, RRN));
-        verify(cards, never()).update(any());
+
+        // Assert
+        verifyNoCardUpdate();
         verifyNoInteractions(reservations, events);
     }
 
     @Test
-    void duplicateReservationHasNoWrites() {
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(card(CardStatus.ACTIVE)));
+    void shouldThrowAndWriteNothingWhenReservationAlreadyExists() {
+        // Arrange
+        cardExists(activeCard());
+
+        // Act
         assertThrows(ReservationAlreadyExistsException.class, () -> service.reserve(PAN, BigDecimal.TEN, RRN));
+
+        // Assert
         verify(reservations, never()).save(any());
-        verify(cards, never()).update(any());
+        verifyNoCardUpdate();
         verifyNoInteractions(events);
     }
 
     @Test
-    void missingCardCannotReserve() {
+    void shouldThrowWhenReservingOnMissingCard() {
+        // Arrange: card repository returns Optional.empty() by default
+
+        // Act
         assertThrows(CardNotFoundException.class, () -> service.reserve(PAN, BigDecimal.TEN, RRN));
-        verify(cards, never()).update(any());
+
+        // Assert
+        verifyNoCardUpdate();
         verifyNoInteractions(reservations, events);
     }
 
     @Test
-    void rollbackRestoresBalanceAndMarksReservation() {
+    void shouldRestoreBalanceAndMarkReservationRolledBackWhenRollbackSucceeds() {
+        // Arrange
         var reservation = new Reservation(PAN, BigDecimal.TEN, RRN);
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(card(CardStatus.ACTIVE)));
+        cardExists(activeCard());
         when(reservations.findByRrnAndPanForUpdate(RRN, PAN)).thenReturn(Optional.of(reservation));
         when(rollbacks.save(any())).thenAnswer(call -> call.getArgument(0));
         when(cards.update(any())).thenAnswer(call -> call.getArgument(0));
+
+        // Act
         var result = service.rollback(PAN, BigDecimal.TEN, RRN);
+
+        // Assert
         assertEquals(0, result.availableBalance().compareTo(new BigDecimal("110")));
         verify(reservations).save(argThat(saved -> saved.status() == ReservationStatus.ROLLED_BACK
                 && saved.id().equals(reservation.id())));
@@ -135,57 +177,89 @@ class CardServiceImplTest {
         verify(events).notifyListeners(new CardServiceRollbackEvent(PAN, RRN, BigDecimal.TEN));
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void missingOrAlreadyRolledBackReservationHasNoWrites(boolean exists) {
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(card(CardStatus.ACTIVE)));
-        if (exists) {
-            var reserved = new Reservation(PAN, BigDecimal.TEN, RRN);
-            var rolledBack = reserved.rolledBack(reserved.startRollback(BigDecimal.TEN));
-            when(reservations.findByRrnAndPanForUpdate(RRN, PAN)).thenReturn(Optional.of(rolledBack));
-            assertThrows(RollbackAlreadySatisfiedException.class, () -> service.rollback(PAN, BigDecimal.TEN, RRN));
-        } else {
-            assertThrows(ReservationNotFoundException.class, () -> service.rollback(PAN, BigDecimal.TEN, RRN));
-        }
-        verifyNoInteractions(rollbacks, events);
-        verify(reservations, never()).save(any());
-        verify(cards, never()).update(any());
+    @Test
+    void shouldThrowAndWriteNothingWhenReservationIsAlreadyRolledBack() {
+        // Arrange
+        var reserved = new Reservation(PAN, BigDecimal.TEN, RRN);
+        var rolledBack = reserved.rolledBack(reserved.startRollback(BigDecimal.TEN));
+        cardExists(activeCard());
+        when(reservations.findByRrnAndPanForUpdate(RRN, PAN)).thenReturn(Optional.of(rolledBack));
+
+        // Act
+        assertThrows(RollbackAlreadySatisfiedException.class, () -> service.rollback(PAN, BigDecimal.TEN, RRN));
+
+        // Assert
+        verifyNoWritesOnFailedRollback();
     }
 
     @Test
-    void patchPreservesUnspecifiedFields() {
-        var original = card(CardStatus.ACTIVE);
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(original));
+    void shouldThrowAndWriteNothingWhenRollbackReservationIsMissing() {
+        // Arrange
+        cardExists(activeCard());
+
+        // Act
+        assertThrows(ReservationNotFoundException.class, () -> service.rollback(PAN, BigDecimal.TEN, RRN));
+
+        // Assert
+        verifyNoWritesOnFailedRollback();
+    }
+
+    private void verifyNoWritesOnFailedRollback() {
+        verifyNoInteractions(rollbacks, events);
+        verify(reservations, never()).save(any());
+        verifyNoCardUpdate();
+    }
+
+    @Test
+    void shouldKeepUnspecifiedFieldsWhenPatchingOnlyStatus() {
+        // Arrange
+        var original = activeCard();
+        cardExists(original);
         when(cards.update(any())).thenAnswer(call -> call.getArgument(0));
+
+        // Act
         var patched = service.patchCard(PAN, CardStatus.BLOCKED, null, null, null);
+
+        // Assert
         assertEquals(original.withData(CardStatus.BLOCKED, original.dailyLimit(), original.monthlyLimit(),
                 original.availableBalance()), patched);
         verify(events).notifyListeners(new CardServicePatchEvent(PAN));
     }
 
-    @ParameterizedTest
+    @ParameterizedTest(name = "daily={0}, monthly={1}")
     @CsvSource({"-0.01,1000", "500,-0.01", "1000.01,1000"})
-    void invalidLimitsCannotBePatched(String daily, String monthly) {
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(card(CardStatus.ACTIVE)));
+    void shouldThrowAndWriteNothingWhenPatchedLimitsAreInvalid(String daily, String monthly) {
+        // Arrange
+        cardExists(activeCard());
+
+        // Act
         assertThrows(IllegalArgumentException.class, () -> service.patchCard(PAN, null,
                 new BigDecimal(daily), new BigDecimal(monthly), null));
-        verify(cards, never()).update(any());
+
+        // Assert
+        verifyNoCardUpdate();
         verifyNoInteractions(events);
     }
 
-    @ParameterizedTest
+    @ParameterizedTest(name = "daily={0}, monthly={1}")
     @CsvSource({"0,0", "999.99,1000", "1000,1000"})
-    void acceptsZeroAndEqualLimits(String daily, String monthly) {
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(card(CardStatus.ACTIVE)));
+    void shouldApplyLimitsWhenPatchedLimitsAreZeroOrEqual(String daily, String monthly) {
+        // Arrange
+        cardExists(activeCard());
         when(cards.update(any())).thenAnswer(call -> call.getArgument(0));
+
+        // Act
         var result = service.patchCard(PAN, null, new BigDecimal(daily), new BigDecimal(monthly), null);
+
+        // Assert
         assertEquals(new BigDecimal(daily), result.dailyLimit());
         assertEquals(new BigDecimal(monthly), result.monthlyLimit());
         assertEquals(CardStatus.ACTIVE, result.status());
     }
 
     @Test
-    void creationBuildsActiveCardAndPublishesEventAfterSave() {
+    void shouldBuildActiveCardAndPublishEventAfterSaveWhenCreatingCard() {
+        // Arrange
         when(bins.getIssuerId("400000")).thenReturn("ISS001");
         when(settings.cardValidityPeriod()).thenReturn(3);
         when(settings.maxCardCreationRetries()).thenReturn(5);
@@ -193,8 +267,12 @@ class CardServiceImplTest {
         when(retries.supply(eq(5), any())).thenAnswer(call -> call.<Supplier<?>>getArgument(1).get());
         when(cards.create(any())).thenAnswer(call -> call.getArgument(0));
         var before = YearMonth.now();
+
+        // Act
         var result = service.createCard("400000", "IVAN IVANOV", "643", new BigDecimal("500"),
                 new BigDecimal("1000"), new BigDecimal("100"));
+
+        // Assert
         var after = YearMonth.now();
         assertEquals(PAN, result.pan());
         assertEquals("400000", result.bin());
@@ -205,49 +283,77 @@ class CardServiceImplTest {
         assertEquals(new BigDecimal("500"), result.dailyLimit());
         assertEquals(new BigDecimal("1000"), result.monthlyLimit());
         assertEquals(new BigDecimal("100"), result.availableBalance());
-        assertTrue(result.expiryDate().equals(before.plusYears(3)) || result.expiryDate().equals(after.plusYears(3)));
+        assertTrue(List.of(before.plusYears(3), after.plusYears(3)).contains(result.expiryDate()));
         var order = inOrder(cards, events);
         order.verify(cards).create(result);
         order.verify(events).notifyListeners(new CardServiceCreationEvent(1));
     }
 
     @Test
-    void creationFailureDoesNotPublishSuccessEvent() {
+    void shouldNotPublishSuccessEventWhenCardCreationFails() {
+        // Arrange
         when(bins.getIssuerId("400000")).thenThrow(new IllegalStateException("unknown issuer"));
+
+        // Act
         assertThrows(IllegalStateException.class, () -> service.createCard("400000", "IVAN IVANOV", "643",
                 BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ZERO));
+
+        // Assert
         verifyNoInteractions(cards, retries, events);
     }
 
     @Test
-    void deletionIsSoft() {
-        var original = card(CardStatus.ACTIVE);
-        when(cards.findByPanForUpdate(PAN)).thenReturn(Optional.of(original));
+    void shouldMarkCardDeletedInsteadOfRemovingWhenDeletingCard() {
+        // Arrange
+        var original = activeCard();
+        cardExists(original);
+
+        // Act
         service.deleteCard(PAN);
+
+        // Assert
         verify(cards).update(original.deleted());
         verify(events).notifyListeners(new CardServiceDeletionEvent(PAN));
     }
 
-    @ParameterizedTest
-    @CsvSource({"99,true", "100,true", "101,false"})
-    void enforcesMaximumPageSize(int limit, boolean valid) {
+    @ParameterizedTest(name = "limit={0}")
+    @CsvSource({"99", "100"})
+    void shouldReturnCardsWhenPageLimitIsBelowOrEqualToMaximum(int limit) {
+        // Arrange
         when(settings.maxPageLimit()).thenReturn(100);
-        if (valid) {
-            when(cards.findCards(limit, 0L, CardStatus.ACTIVE, "400000", "ISS001", null, null))
-                    .thenReturn(List.of(card(CardStatus.ACTIVE)));
-            assertEquals(List.of(card(CardStatus.ACTIVE)),
-                    service.getCards(limit, 0L, CardStatus.ACTIVE, "400000", "ISS001", null, null));
-        } else {
-            assertThrows(TooLargeLimitException.class, () -> service.getCards(limit, 0L, null, null, null, null, null));
-            verifyNoInteractions(cards);
-        }
+        when(cards.findCards(limit, 0L, CardStatus.ACTIVE, "400000", "ISS001", null, null))
+                .thenReturn(List.of(activeCard()));
+
+        // Act
+        var result = service.getCards(limit, 0L, CardStatus.ACTIVE, "400000", "ISS001", null, null);
+
+        // Assert
+        assertEquals(List.of(activeCard()), result);
     }
 
     @Test
-    void usesPaginationDefaults() {
+    void shouldThrowWithoutQueryingWhenPageLimitExceedsMaximum() {
+        // Arrange
+        when(settings.maxPageLimit()).thenReturn(100);
+
+        // Act
+        assertThrows(TooLargeLimitException.class, () -> service.getCards(101, 0L, null, null, null, null, null));
+
+        // Assert
+        verifyNoInteractions(cards);
+    }
+
+    @Test
+    void shouldApplyPaginationDefaultsWhenLimitAndOffsetAreNull() {
+        // Arrange
         when(defaults.pageLimit()).thenReturn(50);
         when(defaults.pageOffset()).thenReturn(0L);
-        when(cards.findCards(50, 0L, null, null, null, null, null)).thenReturn(List.of(card(CardStatus.ACTIVE)));
-        assertEquals(List.of(card(CardStatus.ACTIVE)), service.getCards(null, null, null, null, null, null, null));
+        when(cards.findCards(50, 0L, null, null, null, null, null)).thenReturn(List.of(activeCard()));
+
+        // Act
+        var result = service.getCards(null, null, null, null, null, null, null);
+
+        // Assert
+        assertEquals(List.of(activeCard()), result);
     }
 }

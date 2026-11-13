@@ -28,6 +28,7 @@
         <java.version>21</java.version>
         <springdoc.version>2.7.0</springdoc.version>
         <lombok.version>1.18.38</lombok.version>
+        <jacoco.version>0.8.16</jacoco.version>
         <checkstyle.version>3.6.0</checkstyle.version>
         <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
         <!-- E2E require docker compose; enabled via -Pe2e-tests -->
@@ -223,6 +224,26 @@
                         <failOnViolation>true</failOnViolation>
                         <violationSeverity>warning</violationSeverity>
                     </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco.version}</version>
+                    <executions>
+                        <execution>
+                            <id>prepare-agent</id>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>report</id>
+                            <phase>test</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
+                        </execution>
+                    </executions>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

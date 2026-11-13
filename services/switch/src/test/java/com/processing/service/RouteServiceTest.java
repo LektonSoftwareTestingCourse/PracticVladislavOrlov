@@ -8,8 +8,6 @@ import com.processing.exception.AuthorizationException;
 import com.processing.exception.UnknownBinException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -27,6 +25,8 @@ import static org.mockito.Mockito.*;
  */
 @ExtendWith(MockitoExtension.class)
 class RouteServiceTest {
+    private static final String ISSUER_ID = "ISS001";
+
     @Mock private RoutingService routing;
     @Mock private AuthorizationClient authorization;
     @Mock private AcquiringFeeClient fees;
@@ -37,45 +37,66 @@ class RouteServiceTest {
             "000000", new BigDecimal("100"), "643", Instant.parse("2026-06-30T23:59:59Z"),
             "TERM", "POS", "SHOP", "5411", "ACQ001", null);
 
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void approvedTransactionIsLoggedOrRolledBack(boolean published) {
-        when(routing.getIssuerIdByPan(request.pan())).thenReturn("ISS001");
-        var approved = new AuthorizationResponse("0110", request.stan(), "600100000001", "ABC123",
-                "00", "APPROVED", null, 7);
-        when(authorization.authorize(any())).thenReturn(approved);
+    private final AuthorizationResponse approved = new AuthorizationResponse("0110", request.stan(),
+            "600100000001", "ABC123", "00", "APPROVED", null, 7);
+
+    private boolean isRoutedWithNormalizedIds(AuthorizationRequest routed) {
+        return ISSUER_ID.equals(routed.issuerId())
+                && "TERM0000".equals(routed.terminalId())
+                && "SHOP00000000000".equals(routed.merchantId())
+                && request.amount().equals(routed.amount());
+    }
+
+    private void stubApprovedAuthorization(boolean published) {
+        when(routing.getIssuerIdByPan(request.pan())).thenReturn(ISSUER_ID);
+        when(authorization.authorize(argThat(this::isRoutedWithNormalizedIds))).thenReturn(approved);
         when(fees.fetchAcquiringFee(any(), any(), any(), any(), any())).thenReturn(new BigDecimal("2"));
         when(logger.log(any())).thenReturn(published);
+    }
 
+    @Test
+    void shouldReturnAuthorizationResponseAndLogApprovedWhenLoggingSucceeds() {
+        // Arrange
+        stubApprovedAuthorization(true);
+
+        // Act
         var result = service.route(request);
 
-        var routed = ArgumentCaptor.forClass(AuthorizationRequest.class);
-        verify(authorization).authorize(routed.capture());
-        assertEquals("ISS001", routed.getValue().issuerId());
-        assertEquals("TERM0000", routed.getValue().terminalId());
-        assertEquals("SHOP00000000000", routed.getValue().merchantId());
-        assertEquals(request.amount(), routed.getValue().amount());
+        // Assert
+        assertSame(approved, result);
         var logged = ArgumentCaptor.forClass(TransactionRequest.class);
         verify(logger).log(logged.capture());
         assertEquals(TransactionStatus.APPROVED, logged.getValue().status());
         assertEquals(approved.rrn(), logged.getValue().rrn());
         assertEquals(new BigDecimal("2"), logged.getValue().acquiringFee());
-        if (published) {
-            assertSame(approved, result);
-            verify(authorization, never()).rollback(any(), any());
-        } else {
-            assertEquals("96", result.responseCode());
-            assertEquals("DECLINED", result.status());
-            var order = inOrder(logger, authorization);
-            order.verify(logger).log(any());
-            order.verify(authorization).rollback(routed.getValue(), approved.rrn());
-        }
+        verify(authorization, never()).rollback(any(), any());
     }
 
     @Test
-    void unknownBinIsDeclinedWithoutCallingAuthorization() {
-        when(routing.getIssuerIdByPan(request.pan())).thenThrow(new UnknownBinException("400000"));
+    void shouldRollbackAndDeclineWhenApprovedTransactionIsNotLogged() {
+        // Arrange
+        stubApprovedAuthorization(false);
+
+        // Act
         var result = service.route(request);
+
+        // Assert
+        assertEquals("96", result.responseCode());
+        assertEquals("DECLINED", result.status());
+        var order = inOrder(logger, authorization);
+        order.verify(logger).log(any());
+        order.verify(authorization).rollback(argThat(this::isRoutedWithNormalizedIds), eq(approved.rrn()));
+    }
+
+    @Test
+    void shouldDeclineAsCardNotFoundWithoutCallingAuthorizationWhenBinIsUnknown() {
+        // Arrange
+        when(routing.getIssuerIdByPan(request.pan())).thenThrow(new UnknownBinException("400000"));
+
+        // Act
+        var result = service.route(request);
+
+        // Assert
         assertEquals("14", result.responseCode());
         assertEquals("CARD_NOT_FOUND", result.declineReason());
         verifyNoInteractions(authorization, fees);
@@ -83,10 +104,15 @@ class RouteServiceTest {
     }
 
     @Test
-    void unavailableAuthorizationIsLoggedAsDeclineWithoutRollback() {
-        when(routing.getIssuerIdByPan(request.pan())).thenReturn("ISS001");
+    void shouldLogDeclineWithoutRollbackWhenAuthorizationIsUnavailable() {
+        // Arrange
+        when(routing.getIssuerIdByPan(request.pan())).thenReturn(ISSUER_ID);
         when(authorization.authorize(any())).thenThrow(new AuthorizationException(request.stan(), 3, "offline"));
+
+        // Act
         var result = service.route(request);
+
+        // Assert
         assertEquals("05", result.responseCode());
         assertEquals("DECLINED", result.status());
         verify(authorization, never()).rollback(any(), any());

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -12,28 +13,99 @@ import static org.junit.jupiter.api.Assertions.*;
  * Проверяет ограничение частоты запросов, независимость клиентов и восстановление токенов с течением времени.
  */
 class InMemoryRateLimiterTest {
-    @Test
-    void enforcesCapacityAndKeepsClientsIndependent() {
-        var limiter = InMemoryRateLimiter.forTesting(2, 0, Duration.ofMinutes(10), 10, () -> 0L);
-        assertTrue(limiter.allowRequest("client-a"));
-        assertTrue(limiter.allowRequest("client-a"));
-        assertFalse(limiter.allowRequest("client-a"));
-        assertTrue(limiter.allowRequest("client-b"));
+    private static final String CLIENT = "client";
+    private static final long HALF_SECOND_NANOS = 500_000_000L;
+
+    private final AtomicLong nanos = new AtomicLong();
+    private final Ticker ticker = nanos::get;
+
+    private InMemoryRateLimiter limiter(int capacity, int refillPerSecond) {
+        return InMemoryRateLimiter.forTesting(capacity, refillPerSecond, Duration.ofMinutes(10), 10, ticker);
+    }
+
+    private void consumeTokens(InMemoryRateLimiter limiter, String client, int count) {
+        IntStream.range(0, count).forEach(i -> limiter.allowRequest(client));
     }
 
     @Test
-    void refillsAtOneTokenBoundaryAndCapsRefill() {
-        var nanos = new AtomicLong();
-        Ticker ticker = nanos::get;
-        var limiter = InMemoryRateLimiter.forTesting(1, 2, Duration.ofMinutes(10), 10, ticker);
-        assertTrue(limiter.allowRequest("client"));
-        nanos.set(499_999_999L);
-        assertFalse(limiter.allowRequest("client"));
-        nanos.set(500_000_000L);
-        assertTrue(limiter.allowRequest("client"));
-        assertFalse(limiter.allowRequest("client"));
-        nanos.set(10_000_000_000L);
-        assertTrue(limiter.allowRequest("client"));
-        assertFalse(limiter.allowRequest("client"));
+    void shouldAllowRequestWhenCapacityIsNotExhausted() {
+        // Arrange
+        var limiter = limiter(2, 0);
+        consumeTokens(limiter, CLIENT, 1);
+
+        // Act
+        boolean allowed = limiter.allowRequest(CLIENT);
+
+        // Assert
+        assertTrue(allowed);
+    }
+
+    @Test
+    void shouldRejectRequestWhenCapacityIsExhausted() {
+        // Arrange
+        var limiter = limiter(2, 0);
+        consumeTokens(limiter, CLIENT, 2);
+
+        // Act
+        boolean allowed = limiter.allowRequest(CLIENT);
+
+        // Assert
+        assertFalse(allowed);
+    }
+
+    @Test
+    void shouldAllowRequestOfOtherClientWhenFirstClientIsExhausted() {
+        // Arrange
+        var limiter = limiter(2, 0);
+        consumeTokens(limiter, "client-a", 2);
+
+        // Act
+        boolean allowed = limiter.allowRequest("client-b");
+
+        // Assert
+        assertTrue(allowed);
+    }
+
+    @Test
+    void shouldRejectRequestWhenLessThanOneTokenIsRefilled() {
+        // Arrange
+        var limiter = limiter(1, 2);
+        consumeTokens(limiter, CLIENT, 1);
+        nanos.set(HALF_SECOND_NANOS - 1);
+
+        // Act
+        boolean allowed = limiter.allowRequest(CLIENT);
+
+        // Assert
+        assertFalse(allowed);
+    }
+
+    @Test
+    void shouldAllowRequestWhenExactlyOneTokenIsRefilled() {
+        // Arrange
+        var limiter = limiter(1, 2);
+        consumeTokens(limiter, CLIENT, 1);
+        nanos.set(HALF_SECOND_NANOS);
+
+        // Act
+        boolean allowed = limiter.allowRequest(CLIENT);
+
+        // Assert
+        assertTrue(allowed);
+    }
+
+    @Test
+    void shouldRejectSecondRequestWhenLongIdleTimeRefillsOnlyUpToCapacity() {
+        // Arrange
+        var limiter = limiter(1, 2);
+        consumeTokens(limiter, CLIENT, 1);
+        nanos.set(Duration.ofSeconds(10).toNanos());
+        consumeTokens(limiter, CLIENT, 1);
+
+        // Act
+        boolean allowed = limiter.allowRequest(CLIENT);
+
+        // Assert
+        assertFalse(allowed);
     }
 }

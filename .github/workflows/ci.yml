@@ -89,7 +89,15 @@ jobs:
       run: mvn -f services/pom.xml -P${{ matrix.service }} checkstyle:check -Dcheckstyle.includeTestSourceDirectory=true
 
     - name: Build services and run unit tests
-      run: mvn -f services/pom.xml -P${{ matrix.service }} install -Dcheckstyle.skip=true
+      run: mvn -f services/pom.xml -P${{ matrix.service }} verify -Dcheckstyle.skip=true
+
+    - name: Upload JaCoCo report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: jacoco-report-${{ matrix.service }}
+        path: services/${{ matrix.service }}/target/site/jacoco/
+        if-no-files-found: ignore
 
   frontend-dashboard:
     runs-on: ubuntu-latest

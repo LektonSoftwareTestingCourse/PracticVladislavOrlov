@@ -1,5 +1,6 @@
 package com.processing.service;
 
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -11,25 +12,55 @@ import static org.junit.jupiter.api.Assertions.*;
  * Проверяет дополнение и обрезку идентификаторов терминала и мерчанта, включая legacy-формат.
  */
 class AuthorizationRequestNormalizerTest {
-    @ParameterizedTest
+    @ParameterizedTest(name = "{0} -> {1}")
     @CsvSource({"TERM,TERM0000", "TERM0001,TERM0001", "TERM00012,TERM0001"})
-    void padsOrTruncatesTerminalToEightCharacters(String input, String expected) {
-        assertEquals(expected, AuthorizationRequestNormalizer.normalizeTerminalId(input));
+    void shouldPadOrTruncateTerminalIdToEightCharacters(String input, String expected) {
+        // Arrange: input is provided by the parameters
+
+        // Act
+        String normalized = AuthorizationRequestNormalizer.normalizeTerminalId(input);
+
+        // Assert
+        assertEquals(expected, normalized);
     }
 
-    @ParameterizedTest
+    @ParameterizedTest(name = "{0} -> {1}")
     @CsvSource({"SHOP,SHOP00000000000", "MERCH1,MERCH1000000000",
             "MERCH1234567890,MERCH1234567890", "MERCH01234567890,MERCH1234567890",
             "OTHER123456789012,OTHER1234567890"})
-    void normalizesMerchantIncludingLegacyPrefix(String input, String expected) {
-        assertEquals(expected, AuthorizationRequestNormalizer.normalizeMerchantId(input));
+    void shouldNormalizeMerchantIdIncludingLegacyPrefix(String input, String expected) {
+        // Arrange: input is provided by the parameters
+
+        // Act
+        String normalized = AuthorizationRequestNormalizer.normalizeMerchantId(input);
+
+        // Assert
+        assertEquals(expected, normalized);
     }
 
-    @ParameterizedTest
+    @ParameterizedTest(name = "value=[{0}]")
     @NullAndEmptySource
     @ValueSource(strings = {" "})
-    void preservesMissingIdentifiersForValidation(String value) {
-        assertEquals(value, AuthorizationRequestNormalizer.normalizeTerminalId(value));
-        assertEquals(value, AuthorizationRequestNormalizer.normalizeMerchantId(value));
+    void shouldPreserveTerminalIdWhenItIsMissing(String value) {
+        // Arrange: value is provided by the parameters
+
+        // Act
+        String normalized = AuthorizationRequestNormalizer.normalizeTerminalId(value);
+
+        // Assert
+        assertEquals(value, normalized);
+    }
+
+    @ParameterizedTest(name = "value=[{0}]")
+    @NullAndEmptySource
+    @ValueSource(strings = {" "})
+    void shouldPreserveMerchantIdWhenItIsMissing(String value) {
+        // Arrange: value is provided by the parameters
+
+        // Act
+        String normalized = AuthorizationRequestNormalizer.normalizeMerchantId(value);
+
+        // Assert
+        assertEquals(value, normalized);
     }
 }

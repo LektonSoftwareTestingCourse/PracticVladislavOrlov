@@ -196,6 +196,10 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
             <!-- Checkstyle — конфигурация унаследована из родительского POM -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -212,6 +216,7 @@
                         <exclude>**/load/**/*.java</exclude>
                     </excludes>
                     <argLine>
+                        @{argLine}
                         -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/1.15.11/byte-buddy-agent-1.15.11.jar
                         -XX:+EnableDynamicAgentLoading
                     </argLine>
