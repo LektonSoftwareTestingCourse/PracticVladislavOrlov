@@ -14,7 +14,7 @@ endif
 
 # Специальные цели
 .PHONY: run stop clean build status logs smoke smoke-win test lint
-.PHONY: mvn-all mvn-clean mvn-test mvn-lint mvn-service api-test api-test-defects
+.PHONY: mvn-all mvn-clean mvn-test mvn-lint mvn-service api-test
 .PHONY: npm-install npm-lint npm-test npm-build
 
 help:
@@ -95,9 +95,6 @@ mvn-lint:
 # API-тесты практики 5 (нужен поднятый стек: make run)
 api-test:
 	$(MVN) -Papi-tests test
-
-api-test-defects:
-	$(MVN) -Papi-tests test -Dapi.groups=defect -Dapi.excluded.groups=
 
 mvn-service:
 	$(MVN) -P$(SERVICE) package

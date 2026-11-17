@@ -68,6 +68,20 @@ public final class Api {
                 .extract().path("rrn");
     }
 
+    /**
+     * Circuit breaker Gateway открывается после 3 ПОДРЯД ответов 5xx одного сервиса, а любой успешный ответ
+     * сбрасывает счётчик. Тесты, которые намеренно получают 500 (см. Р-11), вызывают это после каждого запроса.
+     */
+    public static void healCards() {
+        given().spec(Specs.gateway()).queryParam("limit", 1)
+                .when().get("/api/cards").then().statusCode(200);
+    }
+
+    /** То же для маршрутов Logger (/api/dashboard/**, /api/transactions/**). */
+    public static void healLogger() {
+        given().spec(Specs.gateway()).when().get("/api/dashboard/stats").then().statusCode(200);
+    }
+
     /** Поиск в Logger через Gateway по PAN. */
     public static Response searchByPan(String pan) {
         return given().spec(Specs.gateway()).queryParam("pan", pan)

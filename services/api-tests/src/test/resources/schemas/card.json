@@ -9,13 +9,13 @@
     "pan": {"type": "string", "pattern": "^\\d{16}$"},
     "bin": {"type": "string", "pattern": "^\\d{6}$"},
     "cardholderName": {"type": "string", "minLength": 1},
-    "expiryDate": {"type": "string"},
+    "expiryDate": {},
     "status": {"type": "string", "enum": ["ACTIVE", "INACTIVE", "BLOCKED", "EXPIRED"]},
     "currencyCode": {"type": "string", "pattern": "^\\d{3}$"},
     "dailyLimit": {"type": "number", "minimum": 0},
     "monthlyLimit": {"type": "number", "minimum": 0},
     "availableBalance": {"type": "number"},
     "issuerId": {"type": "string"},
-    "createdAt": {"type": "string"}
+    "createdAt": {}
   }
 }

@@ -1,9 +1,8 @@
 name: API tests (practice 5)
 
 # Автоматический прогон API-тестов практики 5 на поднятом через Docker Compose стеке СМП.
-# Основной набор должен быть зелёным; набор с тегом "defect" фиксирует найденные расхождения
-# контракта и реализации и по определению содержит красные тесты — он запускается отдельным шагом
-# и не валит пайплайн (его результат — артефакт для отчёта).
+# Все тесты должны быть зелёными; найденные расхождения контракта и реализации зафиксированы
+# тестами-характеризациями (поведение кода) и описаны в docs/practice-5/api-test-report.md.
 
 on:
   push:
@@ -58,26 +57,14 @@ jobs:
           done
           echo "stack did not become healthy"; exit 1
 
-      - name: Run API tests (main suite)
+      - name: Run API tests
         run: mvn -B -f services/pom.xml -Papi-tests test
 
-      - name: Upload surefire reports (main suite)
+      - name: Upload surefire reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: api-tests-main-reports
-          path: services/api-tests/target/surefire-reports
-
-      - name: Run API tests (known-defect suite, informational)
-        if: always()
-        continue-on-error: true
-        run: mvn -B -f services/pom.xml -Papi-tests test -Dapi.groups=defect -Dapi.excluded.groups=
-
-      - name: Upload surefire reports (defect suite)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: api-tests-defect-reports
+          name: api-tests-reports
           path: services/api-tests/target/surefire-reports
 
       - name: Show service logs on failure

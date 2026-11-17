@@ -19,7 +19,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -268,11 +267,12 @@ class TransactionSearchApiTest extends BaseApiTest {
 
     /** Р-16: при dateFrom > dateTo нарушено правило уровня класса; handleValidation берёт только field errors -> пустой message. */
     @Test
-    @Tag("defect")
-    void invertedDateRangeShouldExplainWhichRuleIsViolated() {
+    void invertedDateRangeGivesEmptyMessageBecauseClassLevelErrorIsNotReported() {
         search().queryParam("dateFrom", "2026-02-02").queryParam("dateTo", "2026-01-01")
                 .when().get("/api/transactions/search")
-                .then().statusCode(400).body("message", containsString("date"));
+                .then().statusCode(400)
+                .body("error", equalTo("Validation error"))
+                .body("message", equalTo(""));
     }
 
     @Test

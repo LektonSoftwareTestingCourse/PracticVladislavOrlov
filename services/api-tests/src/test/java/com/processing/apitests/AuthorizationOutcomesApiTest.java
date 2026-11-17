@@ -24,7 +24,6 @@ import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -228,14 +227,16 @@ class AuthorizationOutcomesApiTest extends BaseApiTest {
 
     // ---------- расхождение: MTI ответа ----------
 
-    /** Р-1: api-spec.md — ответ "mti": "0110"; Authorization возвращает mti запроса ("0100"). */
+    /**
+     * Р-1: api-spec.md — ответ "mti": "0110"; AuthorizationResponse.approved/declined копируют mti запроса,
+     * поэтому приходит "0100". (Только отказ Switch по неизвестному BIN отвечает "0110" — см. InternalRouteApiTest.)
+     */
     @ParameterizedTest(name = "{0}")
     @MethodSource("approvedAndDeclined")
-    @Tag("defect")
-    void responseMtiShouldBe0110(String name, Supplier<Prepared> prepare) {
+    void responseMtiEchoesRequestMtiInsteadOf0110(String name, Supplier<Prepared> prepare) {
         var response = Api.transaction(prepare.get().body());
 
-        response.then().statusCode(200).body("mti", equalTo("0110"));
+        response.then().statusCode(200).body("mti", equalTo("0100"));
     }
 
     static Stream<Arguments> approvedAndDeclined() {

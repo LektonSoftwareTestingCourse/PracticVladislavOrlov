@@ -2,6 +2,7 @@ package com.processing.apitests;
 
 import static io.restassured.RestAssured.given;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -17,7 +18,6 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -61,13 +61,15 @@ class GatewayRoutingApiTest extends BaseApiTest {
         // when: изменяющий запрос с кодом 200 очищает кэш (filter: status OK/CREATED -> cache.clear())
         Api.setStatus(pan, "BLOCKED");
 
-        // then: следующий GET снова идёт в сервис и видит новый статус
-        given().spec(Specs.gateway())
-                .when().get("/api/cards/{pan}", pan)
-                .then()
-                .statusCode(200)
-                .header("X-Cache", equalTo("MISS"))
-                .body("status", equalTo("BLOCKED"));
+        // then: следующий GET идёт в сервис и видит новый статус. Очистка кэша выполняется в doFinally фильтра,
+        // то есть возможна микро-гонка с ответом клиенту — поэтому ждём условие с коротким явным окном.
+        await().atMost(Duration.ofSeconds(3)).pollInterval(Duration.ofMillis(100)).untilAsserted(() ->
+                given().spec(Specs.gateway())
+                        .when().get("/api/cards/{pan}", pan)
+                        .then()
+                        .statusCode(200)
+                        .header("X-Cache", equalTo("MISS"))
+                        .body("status", equalTo("BLOCKED")));
     }
 
     @Test
@@ -89,8 +91,7 @@ class GatewayRoutingApiTest extends BaseApiTest {
      * минуя Gateway, поэтому закэшированная карта показывает устаревший баланс до 5 минут.
      */
     @Test
-    @Tag("defect")
-    void cardBalanceViaGatewayReflectsAuthorizedTransaction() {
+    void cardViaGatewayStaysStaleAfterAuthorizedTransaction() {
         // given: баланс 10 000, ответ закэширован
         String pan = Api.createCard(10_000);
         given().spec(Specs.gateway()).get("/api/cards/{pan}", pan).then().body("availableBalance", equalTo(10_000));
@@ -98,10 +99,13 @@ class GatewayRoutingApiTest extends BaseApiTest {
         // when: одобренная транзакция на 4 000
         Api.approvedTransaction(TxBody.forPan(pan).amount(4_000).build());
 
-        // then: потребитель, читающий карту через Gateway, должен видеть 6 000
+        // then: сервис уже показывает 6 000, а Gateway отдаёт устаревшую карту из кэша (X-Cache: HIT)
+        assertThat(Api.balance(pan).longValue(), equalTo(6_000L));
         given().spec(Specs.gateway())
                 .when().get("/api/cards/{pan}", pan)
-                .then().statusCode(200).body("availableBalance", equalTo(6_000));
+                .then().statusCode(200)
+                .header("X-Cache", equalTo("HIT"))
+                .body("availableBalance", equalTo(10_000));
     }
 
     // ---------- маршруты ----------

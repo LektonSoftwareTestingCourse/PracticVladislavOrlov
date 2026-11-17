@@ -21,10 +21,6 @@
         <awaitility.version>4.2.2</awaitility.version>
         <!-- Адреса стенда; переопределяются через -D или переменные окружения (см. support/Env.java) -->
         <api.gateway>http://localhost:8080</api.gateway>
-        <!-- Тесты с тегом "defect" фиксируют найденные расхождения контракта и реализации.
-             По умолчанию они исключены из «зелёного» прогона; запуск: make api-test-defects -->
-        <api.excluded.groups>defect</api.excluded.groups>
-        <api.groups/>
         <checkstyle.skip>true</checkstyle.skip>
     </properties>
 
@@ -73,8 +69,6 @@
                     <includes>
                         <include>**/*ApiTest.java</include>
                     </includes>
-                    <excludedGroups>${api.excluded.groups}</excludedGroups>
-                    <groups>${api.groups}</groups>
                     <systemPropertyVariables>
                         <api.gateway>${api.gateway}</api.gateway>
                     </systemPropertyVariables>

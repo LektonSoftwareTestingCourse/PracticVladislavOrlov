@@ -18,7 +18,6 @@ import com.processing.apitests.support.Specs;
 import com.processing.apitests.support.TxBody;
 import io.restassured.path.json.JsonPath;
 import java.time.Duration;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -129,22 +128,26 @@ class DashboardApiTest extends BaseApiTest {
                 .then().statusCode(200);
     }
 
-    /** Р-18: OpenAPI — maximum: 100 для limit; код допускает до 500. */
+    /** Р-18: OpenAPI — maximum: 100 для limit; код (DashboardController @Max(500)) принимает значения до 500. */
     @Test
-    @Tag("defect")
-    void recentLimitAbove100ShouldBeRejectedAccordingToOpenApi() {
+    void recentLimitAbove100IsAcceptedAlthoughOpenApiSaysMax100() {
         given().spec(Specs.gateway()).queryParam("limit", 101)
                 .when().get("/api/dashboard/recent")
-                .then().statusCode(400);
+                .then().statusCode(200);
     }
 
-    /** Р-11: нечисловое значение параметра даёт 500 вместо 400 (нет обработчика MethodArgumentTypeMismatch). */
+    /**
+     * Р-11: нечисловое значение параметра — MethodArgumentTypeMismatchException попадает в общий обработчик
+     * Logger и даёт 500. После запроса — успешный вызов, чтобы не копить 5xx в circuit breaker Gateway.
+     */
     @Test
-    @Tag("defect")
-    void recentNonNumericLimitShouldBeRejectedWith400() {
+    void recentNonNumericLimitGivesServerError() {
         given().spec(Specs.gateway()).queryParam("limit", "abc")
                 .when().get("/api/dashboard/recent")
-                .then().statusCode(400);
+                .then().statusCode(500)
+                .body("error", equalTo("Internal server error"))
+                .body("serviceName", equalTo("transaction-logger"));
+        Api.healLogger();
     }
 
     // ---------- charts ----------

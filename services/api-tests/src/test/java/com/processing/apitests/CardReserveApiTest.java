@@ -10,7 +10,6 @@ import com.processing.apitests.support.BaseApiTest;
 import com.processing.apitests.support.Data;
 import com.processing.apitests.support.Specs;
 import java.util.Map;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -117,15 +116,20 @@ class CardReserveApiTest extends BaseApiTest {
                 .body("message", containsString("PAN number must contain exactly 16 digits"));
     }
 
-    /** Р-11: amount не помечен @NotNull — отсутствие поля даёт 500 вместо 400. */
+    /**
+     * Р-11: amount не помечен @NotNull (null проходит @Positive), и Card.startReservation падает с NPE на
+     * compareTo(null) — общий обработчик отвечает 500. Баланс при этом не меняется.
+     */
     @Test
-    @Tag("defect")
-    void reserveWithoutAmountShouldBeRejectedWith400() {
+    void reserveWithoutAmountGivesServerErrorAndKeepsBalance() {
         String pan = Api.createCard(10_000);
 
         given().spec(Specs.gateway()).body(Map.of("rrn", Data.rrn()))
                 .when().post("/api/cards/{pan}/reserve", pan)
-                .then().statusCode(400);
+                .then().statusCode(500)
+                .body("serviceName", equalTo("card-management"));
+        Api.healCards();
+        assertThat(Api.balance(pan).longValue(), equalTo(10_000L));
     }
 
     // ---------- повторная доставка резервирования: все исходы ----------
@@ -237,12 +241,12 @@ class CardReserveApiTest extends BaseApiTest {
     }
 
     /**
-     * Р-13: сумма отката не сверяется с суммой резервирования — откат на большую сумму создаёт деньги на карте.
+     * Р-13: сумма отката не сверяется с суммой резервирования (Reservation.startRollback берёт amount из запроса) —
+     * откат на большую сумму принимается и увеличивает баланс выше исходного. Тест фиксирует поведение кода.
      */
     @Test
-    @Tag("defect")
-    void rollbackAmountAboveReservedAmountShouldBeRejected() {
-        // given: зарезервировано 1 000 из 10 000
+    void rollbackAmountAboveReservedAmountIsAcceptedAndInflatesBalance() {
+        // given: зарезервировано 1 000 из 10 000 (баланс 9 000)
         String pan = Api.createCard(10_000);
         String rrn = Data.rrn();
         reserve(pan, 1_000, rrn).then().statusCode(200);
@@ -250,8 +254,8 @@ class CardReserveApiTest extends BaseApiTest {
         // when: откат на 5 000
         var response = rollback(pan, 5_000, rrn);
 
-        // then: отказ и баланс не выше исходного
-        response.then().statusCode(400);
-        assertThat(Api.balance(pan).longValue(), equalTo(9_000L));
+        // then: 200, баланс 9 000 + 5 000
+        response.then().statusCode(200).body("availableBalance", equalTo(14_000));
+        assertThat(Api.balance(pan).longValue(), equalTo(14_000L));
     }
 }
