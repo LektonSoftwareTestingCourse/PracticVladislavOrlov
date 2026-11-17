@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Card (docs/api-spec.md, модель Card; common/.../CardModel.java)",
+  "type": "object",
+  "required": ["id", "pan", "bin", "cardholderName", "expiryDate", "status", "currencyCode",
+    "dailyLimit", "monthlyLimit", "availableBalance", "issuerId", "createdAt"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "pan": {"type": "string", "pattern": "^\\d{16}$"},
+    "bin": {"type": "string", "pattern": "^\\d{6}$"},
+    "cardholderName": {"type": "string", "minLength": 1},
+    "expiryDate": {"type": "string"},
+    "status": {"type": "string", "enum": ["ACTIVE", "INACTIVE", "BLOCKED", "EXPIRED"]},
+    "currencyCode": {"type": "string", "pattern": "^\\d{3}$"},
+    "dailyLimit": {"type": "number", "minimum": 0},
+    "monthlyLimit": {"type": "number", "minimum": 0},
+    "availableBalance": {"type": "number"},
+    "issuerId": {"type": "string"},
+    "createdAt": {"type": "string"}
+  }
+}

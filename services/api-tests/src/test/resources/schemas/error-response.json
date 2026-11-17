@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ErrorResponse (common/.../ErrorResponse.java)",
+  "type": "object",
+  "required": ["error", "message", "timestamp", "serviceName"],
+  "properties": {
+    "error": {"type": "string", "minLength": 1},
+    "message": {"type": "string"},
+    "timestamp": {"type": ["string", "number"]},
+    "serviceName": {"type": "string", "minLength": 1},
+    "retryAfterMs": {"type": ["string", "null"]}
+  }
+}

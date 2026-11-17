@@ -1,0 +1,89 @@
+name: API tests (practice 5)
+
+# Автоматический прогон API-тестов практики 5 на поднятом через Docker Compose стеке СМП.
+# Основной набор должен быть зелёным; набор с тегом "defect" фиксирует найденные расхождения
+# контракта и реализации и по определению содержит красные тесты — он запускается отдельным шагом
+# и не валит пайплайн (его результат — артефакт для отчёта).
+
+on:
+  push:
+    paths:
+      - 'services/**'
+      - 'docker-compose.yaml'
+      - '.env.example'
+      - '.github/workflows/api-tests.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: api-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Normalize GHCR namespace to lowercase
+        run: echo "GHCR_USER=${OWNER,,}" >> "$GITHUB_ENV"
+        env:
+          OWNER: ${{ github.repository_owner }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Create .env
+        run: cp .env.example .env
+
+      - name: Build and start the stack
+        run: docker compose up -d --build
+        env:
+          GHCR_USER: ${{ env.GHCR_USER }}
+
+      - name: Wait for Gateway health (all downstream services ok)
+        run: |
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health || true)
+            if [ "$code" = "200" ]; then echo "stack is ready"; exit 0; fi
+            echo "waiting ($i/90): gateway /health -> $code"
+            sleep 5
+          done
+          echo "stack did not become healthy"; exit 1
+
+      - name: Run API tests (main suite)
+        run: mvn -B -f services/pom.xml -Papi-tests test
+
+      - name: Upload surefire reports (main suite)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-tests-main-reports
+          path: services/api-tests/target/surefire-reports
+
+      - name: Run API tests (known-defect suite, informational)
+        if: always()
+        continue-on-error: true
+        run: mvn -B -f services/pom.xml -Papi-tests test -Dapi.groups=defect -Dapi.excluded.groups=
+
+      - name: Upload surefire reports (defect suite)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-tests-defect-reports
+          path: services/api-tests/target/surefire-reports
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --tail=150
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
