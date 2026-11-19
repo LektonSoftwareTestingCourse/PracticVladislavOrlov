@@ -46,7 +46,7 @@ class GatewayRoutingApiTest extends BaseApiTest {
         // then: заголовок — часть контракта кэша; тело побайтно то же самое
         second.then()
                 .statusCode(200)
-                .header("X-Cache", equalTo("MISS"))
+                .header("X-Cache", equalTo("HIT"))
                 .header("Content-Type", containsString("application/json"));
         org.hamcrest.MatcherAssert.assertThat(second.asString(), equalTo(firstBody));
     }

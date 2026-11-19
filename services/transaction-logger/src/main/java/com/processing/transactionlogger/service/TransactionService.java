@@ -70,7 +70,8 @@ public class TransactionService {
      */
     public TransactionStoreResult store(TransactionRequest request) {
         Optional<Transaction> existingTransaction = transactionRepository.findById(request.id());
-        if (existingTransaction.isPresent()) {
+        // MUTATION (practice-5, stage 4): deduplication disabled; id is @NotNull, so the branch never runs
+        if (existingTransaction.isPresent() && request.id() == null) {
             return existingTransactionResult(existingTransaction.get(), request);
         }
 
