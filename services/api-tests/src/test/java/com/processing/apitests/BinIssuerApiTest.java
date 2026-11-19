@@ -81,7 +81,7 @@ class BinIssuerApiTest extends BaseApiTest {
      * и удаляет созданную запись, чтобы не оставлять данных и не зависеть от порядка запуска.
      */
     @ParameterizedTest(name = "issuerId=''{0}'' принимается")
-    @ValueSource(strings = {"SHORT", "lowercase1", "TOOLONGISSUER1"})
+    @ValueSource(strings = {"SHORT", "lowercase1"})
     void invalidIssuerIdIsAcceptedBecauseValidatorIsNotWired(String issuerId) {
         // given: свободный BIN
         String bin = "9" + Data.digits(5);
@@ -96,5 +96,23 @@ class BinIssuerApiTest extends BaseApiTest {
         } finally {
             given().spec(Specs.cards()).when().delete("/api/bins/{bin}", bin);
         }
+    }
+
+    /**
+     * Р-26 (продолжение): слишком длинный issuerId (14 символов) аннотацией не отсекается, его отвергает только
+     * БД (колонка issuer_id — varchar(10)), и клиент получает 500 DataIntegrityViolationException вместо 400.
+     * Запись не создаётся. Эндпоинт вызывается напрямую (не через Gateway), поэтому circuit breaker не затрагивается.
+     */
+    @Test
+    void tooLongIssuerIdIsRejectedOnlyByDatabaseWithServerError() {
+        String bin = "9" + Data.digits(5);
+
+        given().spec(Specs.cards()).body(Map.of("bin", bin, "issuerId", "TOOLONGISSUER1"))
+                .when().post("/api/bins")
+                .then().statusCode(500)
+                .body("error", equalTo("DataIntegrityViolationException"))
+                .body("serviceName", equalTo("card-management"));
+        given().spec(Specs.cards()).when().get("/api/bins/{bin}", bin)
+                .then().statusCode(404);
     }
 }
