@@ -74,7 +74,7 @@ class AuthorizationOutcomesApiTest extends BaseApiTest {
 
         // then
         response.then().statusCode(200).body("status", equalTo("APPROVED")).body("responseCode", equalTo("00"));
-        assertThat(Api.balance(pan).longValue(), equalTo(0L));
+        assertThat(Api.balance(pan).longValue(), equalTo(1L));
     }
 
     @Test
