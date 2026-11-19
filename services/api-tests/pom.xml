@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.processing</groupId>
+        <artifactId>processing-platform</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>api-tests</artifactId>
+    <name>api-tests</name>
+    <description>API-тесты REST-контрактов СМП (практика 5): JUnit 5 + REST-assured</description>
+
+    <properties>
+        <!-- Версии зафиксированы явно (требование задания); Spring Boot BOM подхватывает эти свойства -->
+        <rest-assured.version>5.4.0</rest-assured.version>
+        <awaitility.version>4.2.2</awaitility.version>
+        <!-- Адреса стенда; переопределяются через -D или переменные окружения (см. support/Env.java) -->
+        <api.gateway>http://localhost:8080</api.gateway>
+        <checkstyle.skip>true</checkstyle.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <version>${rest-assured.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>${rest-assured.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>${awaitility.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*ApiTest.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <api.gateway>${api.gateway}</api.gateway>
+                    </systemPropertyVariables>
+                    <!-- Тесты изолированы данными (уникальные карты/STAN), но Gateway ограничивает RPS,
+                         поэтому классы выполняются последовательно. -->
+                    <runOrder>alphabetical</runOrder>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

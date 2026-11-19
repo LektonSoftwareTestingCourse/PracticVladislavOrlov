@@ -94,6 +94,12 @@
             </modules>
         </profile>
 
+        <profile>
+            <id>api-tests</id>
+            <modules>
+                <module>api-tests</module>
+            </modules>
+        </profile>
 
         <profile>
             <id>e2e-tests</id>
