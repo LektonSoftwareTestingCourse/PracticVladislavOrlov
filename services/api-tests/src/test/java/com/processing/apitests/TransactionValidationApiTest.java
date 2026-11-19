@@ -78,7 +78,7 @@ class TransactionValidationApiTest extends BaseApiTest {
     @ValueSource(strings = {"0200", "0110", "0400", "100"})
     void mtiOtherThan0100IsRejected(String mti) {
         rejected(TxBody.forPan(PAN).with("mti", mti).build())
-                .body("message", equalTo("Field 'mti' must be '0100'"));
+                .body("message", equalTo("Field 'mti' must be '0200'"));
     }
 
     /** Классы эквивалентности PAN: короче границы, длиннее границы, нецифровой, с пробелом. */
